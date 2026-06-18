@@ -43,11 +43,14 @@ define('EXT_API_TOKEN', '5d5b7145bcf005bd2b0e6a26e43a956c3a130d5f');
 
 define('CACHE_MATCHES_TTL', 120);  // segundos antes de refrescar caché
 define('SESSION_TTL',       86400); // 24 horas
+define('CRON_RECENT_FINISHED_DAYS', 3);
 
 // Estados que indica partido en curso o ya jugado
 define('LIVE_STATUSES',     ['inprogress','1st_half','halftime','2nd_half',
                               'extra_time','penalties','live']);
-define('FINISHED_STATUSES', ['finished','ft','full_time']);
+define('FINISHED_STATUSES', ['finished','ft','full_time','completed','complete','ended',
+                             'final','after_extra_time','aet','after_penalties',
+                             'penalties_finished']);
 define('STARTED_STATUSES',  array_merge(LIVE_STATUSES, FINISHED_STATUSES));
 
 // ─── CORS / Headers ──────────────────────────────────────────
@@ -685,10 +688,18 @@ function verifyEndpoint(PDO $pdo): void
  */
 function cronVerify(PDO $pdo): void
 {
-    $secret = $_GET['secret'] ?? '';
-    if ($secret !== 'CLAVE_SECRETA_AQUI') respond(403, ['error' => 'Forbidden']);
-    $result = verifyPredictions($pdo);
-    respond(200, ['ok' => true, 'timestamp' => date('c'), 'verified' => $result]);
+    requireCronSecret();
+
+    $mode = strtolower(trim((string)($_GET['mode'] ?? 'normal')));
+    $fullRefresh = in_array($mode, ['full', 'all', 'todos'], true);
+    $result = verifyPredictions($pdo, null, $fullRefresh, false);
+
+    respond(200, [
+        'ok' => true,
+        'timestamp' => date('c'),
+        'mode' => $fullRefresh ? 'full' : 'normal',
+        'verified_count' => $result['total'],
+    ]);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -709,11 +720,13 @@ function cronVerify(PDO $pdo): void
  *
  * @param PDO      $pdo
  * @param int|null $userId  Filtrar por usuario (null = todos)
+ * @param bool     $fullRefresh  Refrescar todos los partidos pronosticados antes de validar
+ * @param bool     $includeDetails  Incluir detalle de cada pronóstico actualizado
  * @return array   Resumen de pronósticos verificados
  */
-function verifyPredictions(PDO $pdo, ?int $userId = null): array
+function verifyPredictions(PDO $pdo, ?int $userId = null, bool $fullRefresh = false, bool $includeDetails = true): array
 {
-    refreshPredictedMatches($pdo, $userId);
+    refreshPredictedMatches($pdo, $userId, $fullRefresh);
 
     // Seleccionar pronósticos pendientes de partidos finalizados
     // O pronósticos ya verificados con resultado distinto (corrección de árbitro/VAR)
@@ -733,7 +746,7 @@ function verifyPredictions(PDO $pdo, ?int $userId = null): array
         FROM predictions p
         INNER JOIN matches_cache m ON m.api_id = p.match_api_id
         WHERE
-            m.status     IN ('finished','ft','full_time')
+            LOWER(m.status) IN ('finished','ft','full_time','completed','complete','ended','final','after_extra_time','aet','after_penalties','penalties_finished')
             AND m.home_score IS NOT NULL
             AND m.away_score IS NOT NULL
             AND (
@@ -769,6 +782,7 @@ function verifyPredictions(PDO $pdo, ?int $userId = null): array
     ");
 
     $updatedPreds  = [];
+    $updatedCount  = 0;
 
     foreach ($rows as $row) {
         [$exact, $winner, $total] = calculatePoints(
@@ -782,21 +796,24 @@ function verifyPredictions(PDO $pdo, ?int $userId = null): array
             $row['pred_id'],
         ]);
 
-        $updatedPreds[] = [
-            'pred_id'      => $row['pred_id'],
-            'user_id'      => $row['user_id'],
-            'match_id'     => $row['match_id'],
-            'home_pred'    => $row['home_pred'],
-            'away_pred'    => $row['away_pred'],
-            'real_home'    => $row['real_home'],
-            'real_away'    => $row['real_away'],
-            'points_exact' => $exact,
-            'points_winner'=> $winner,
-            'points_total' => $total,
-        ];
+        $updatedCount++;
+        if ($includeDetails) {
+            $updatedPreds[] = [
+                'pred_id'      => $row['pred_id'],
+                'user_id'      => $row['user_id'],
+                'match_id'     => $row['match_id'],
+                'home_pred'    => $row['home_pred'],
+                'away_pred'    => $row['away_pred'],
+                'real_home'    => $row['real_home'],
+                'real_away'    => $row['real_away'],
+                'points_exact' => $exact,
+                'points_winner'=> $winner,
+                'points_total' => $total,
+            ];
+        }
     }
 
-    return ['total' => count($updatedPreds), 'updated' => $updatedPreds];
+    return ['total' => $updatedCount, 'updated' => $updatedPreds];
 }
 
 /**
@@ -832,7 +849,7 @@ function verifyPredictionsLite(PDO $pdo, ?int $userId = null): array
         FROM predictions p
         INNER JOIN matches_cache m ON m.api_id = p.match_api_id
         WHERE
-            m.status     IN ('finished','ft','full_time')
+            LOWER(m.status) IN ('finished','ft','full_time','completed','complete','ended','final','after_extra_time','aet','after_penalties','penalties_finished')
             AND m.home_score IS NOT NULL
             AND m.away_score IS NOT NULL
             AND (
@@ -1080,10 +1097,16 @@ function refreshMatchCache(PDO $pdo, int $matchId): void
     saveMatchCache($pdo, $m);
 }
 
-function refreshPredictedMatches(PDO $pdo, ?int $userId = null): void
+function refreshPredictedMatches(PDO $pdo, ?int $userId = null, bool $fullRefresh = false): void
 {
     $sql = "
-        SELECT DISTINCT p.match_api_id, m.status, m.cached_at, m.home_score, m.away_score
+        SELECT DISTINCT
+            p.match_api_id,
+            m.status,
+            m.cached_at,
+            m.home_score,
+            m.away_score,
+            m.event_date
         FROM predictions p
         LEFT JOIN matches_cache m ON m.api_id = p.match_api_id
         WHERE 1=1
@@ -1101,13 +1124,21 @@ function refreshPredictedMatches(PDO $pdo, ?int $userId = null): void
     foreach ($rows as $row) {
         $status   = strtolower(trim($row['status'] ?? ''));
         $isLive   = in_array($status, LIVE_STATUSES, true);
+        $isFinished = in_array($status, FINISHED_STATUSES, true);
         $cachedAt = $row['cached_at'] ? strtotime($row['cached_at']) : 0;
         $age      = time() - $cachedAt;
         $isStale  = $cachedAt === 0 || $age > CACHE_MATCHES_TTL;
-        $needsSync = $row['home_score'] === null
+        $eventTime = $row['event_date'] ? strtotime($row['event_date']) : 0;
+        $hasStartedByDate = $eventTime > 0 && $eventTime <= time();
+        $isRecentFinished = $eventTime > 0
+            && $eventTime >= (time() - (CRON_RECENT_FINISHED_DAYS * 86400));
+
+        $needsSync = $fullRefresh
+                  || $row['home_score'] === null
                   || $row['away_score'] === null
-                  || $isStale
-                  || ($isLive && $age > 15);
+                  || ($isLive && $age > 15)
+                  || (!$isFinished && $hasStartedByDate && $isStale)
+                  || ($isFinished && $isRecentFinished && $age > 6 * 3600);
 
         if ($needsSync) {
             refreshMatchCache($pdo, (int)$row['match_api_id']);
@@ -1213,6 +1244,38 @@ function getBearerToken(): ?string
 
     if (preg_match('/Bearer\s+(.+)/i', $h, $m)) return $m[1];
     return isset($_GET['token']) ? $_GET['token'] : null;
+}
+
+function requireCronSecret(): void
+{
+    $secret = trim((string)($_GET['secret'] ?? ''));
+    if ($secret === '') {
+        respond(403, ['error' => 'Forbidden']);
+    }
+
+    $expected = getConfiguredCronSecret();
+    if (!hash_equals($expected, $secret)) {
+        respond(403, ['error' => 'Forbidden']);
+    }
+}
+
+function getConfiguredCronSecret(): string
+{
+    $envSecret = getenv('MATCHDAY_CRON_SECRET');
+    if (is_string($envSecret) && trim($envSecret) !== '') {
+        return trim($envSecret);
+    }
+
+    $secretFile = __DIR__ . '/.cron_secret';
+    if (is_readable($secretFile)) {
+        $fileSecret = trim((string)file_get_contents($secretFile));
+        if ($fileSecret !== '') {
+            return $fileSecret;
+        }
+    }
+
+    // Compatibilidad con instalaciones actuales que todavía usan esta clave en la URL.
+    return 'CLAVE_SECRETA_AQUI';
 }
 
 function externalGet(string $url): ?array

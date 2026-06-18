@@ -91,6 +91,8 @@ CREATE TABLE IF NOT EXISTS predictions (
     points_exact    TINYINT UNSIGNED NOT NULL DEFAULT 0, -- 2 pts bonus marcador exacto
     points_total    TINYINT UNSIGNED NOT NULL DEFAULT 0, -- suma
     result_checked  TINYINT(1)   NOT NULL DEFAULT 0,     -- 1 = ya se calcularon puntos
+    last_real_home  TINYINT UNSIGNED DEFAULT NULL,        -- último marcador local validado
+    last_real_away  TINYINT UNSIGNED DEFAULT NULL,        -- último marcador visitante validado
     -- Cuándo se guardó / modificó
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -19,23 +19,43 @@ define('DB_CHARSET', 'utf8mb4');
 define('EXT_API_BASE',  'https://sports.bzzoiro.com/api');
 define('EXT_API_TOKEN', '5d5b7145bcf005bd2b0e6a26e43a956c3a130d5f');
 define('CACHE_MATCHES_TTL', 120);
+define('CRON_MATCH_REFRESH_LIMIT', 200);
+define('CRON_RECENT_FINISHED_DAYS', 3);
+
+define('LIVE_STATUSES',     ['inprogress','1st_half','halftime','2nd_half',
+                              'extra_time','penalties','live']);
+define('FINISHED_STATUSES', ['finished','ft','full_time','completed','complete','ended',
+                             'final','after_extra_time','aet','after_penalties',
+                             'penalties_finished']);
 
 // Bases de datos a procesar
 $databases = ['matchday_db', 'matchday_dbalter'];
 
 // Validar secreto
-$secret = $_GET['secret'] ?? $_SERVER['argv'][1] ?? '';
-if (strpos($secret, '--secret=') === 0) {
-    $secret = substr($secret, 9);
-}
+$secret = getRequestOption('secret') ?? getCliOption('secret') ?? ($_SERVER['argv'][1] ?? '');
+$secret = strpos($secret, '--secret=') === 0 ? substr($secret, 9) : $secret;
+$expectedSecret = getExpectedCronSecret();
 
 if (!$secret) {
     die("❌ Se requiere parámetro --secret\n");
 }
 
+if ($expectedSecret !== null && !hash_equals($expectedSecret, $secret)) {
+    die("❌ Secret inválido\n");
+}
+
+$mode = strtolower((string)(getRequestOption('mode') ?? getCliOption('mode') ?? 'normal'));
+$fullSync = in_array($mode, ['full', 'all', 'todos'], true) || hasCliFlag('full');
+$modeLabel = $fullSync ? 'FULL/TODOS' : 'normal';
+
 echo "═══════════════════════════════════════════════════════════════\n";
 echo "  🔄 CRON: Verificación Multi-BD " . date('Y-m-d H:i:s') . "\n";
 echo "═══════════════════════════════════════════════════════════════\n\n";
+echo "Modo: $modeLabel\n";
+if ($expectedSecret === null) {
+    echo "⚠️  No existe .cron_secret ni MATCHDAY_CRON_SECRET; se acepta cualquier secret no vacío.\n";
+}
+echo "\n";
 
 $totalStats = ['updated' => 0, 'verified' => 0, 'failed' => 0];
 
@@ -60,27 +80,92 @@ foreach ($databases as $dbName) {
         continue;
     }
 
-    // 1. Obtener matches mundialistas que tengan pronósticos
+    // 1. Obtener partidos que tengan pronósticos.
+    // Prioriza pendientes de ayer/ya jugados para que no queden atrapados por el límite del cron.
     echo "   • Buscando partidos con pronósticos...\n";
-    $stmt = $pdo->prepare("
-        SELECT p.match_api_id
+    $countStmt = $pdo->prepare("
+        SELECT COUNT(DISTINCT p.match_api_id) AS total
         FROM predictions p
         INNER JOIN matches_cache m ON m.api_id = p.match_api_id
-        WHERE m.is_mundial = 1
-        GROUP BY p.match_api_id
+    ");
+    $countStmt->execute();
+    $candidateCount = (int)($countStmt->fetch()['total'] ?? 0);
+
+    if ($fullSync) {
+        $allStmt = $pdo->prepare("
+            SELECT p.match_api_id, MAX(m.event_date) AS event_date
+            FROM predictions p
+            INNER JOIN matches_cache m ON m.api_id = p.match_api_id
+            GROUP BY p.match_api_id
+            ORDER BY event_date DESC
+        ");
+        $allStmt->execute();
+        $urgentMatchIds = array_column($allStmt->fetchAll(), 'match_api_id');
+    } else {
+        $recentDays = (int)CRON_RECENT_FINISHED_DAYS;
+        $urgentStmt = $pdo->prepare("
+            SELECT p.match_api_id, m.event_date
+            FROM predictions p
+            INNER JOIN matches_cache m ON m.api_id = p.match_api_id
+            WHERE m.event_date <= NOW()
+              AND (
+                  p.result_checked = 0
+                  OR LOWER(m.status) NOT IN ('finished','ft','full_time','completed','complete','ended','final','after_extra_time','aet','after_penalties','penalties_finished')
+                  OR m.home_score IS NULL
+                  OR m.away_score IS NULL
+                  OR m.event_date >= DATE_SUB(NOW(), INTERVAL $recentDays DAY)
+              )
+            GROUP BY p.match_api_id, m.event_date
+            ORDER BY
+                CASE
+                    WHEN DATE(m.event_date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) THEN 1
+                    ELSE 2
+                END,
+                m.event_date DESC
+        ");
+        $urgentStmt->execute();
+        $urgentMatchIds = array_column($urgentStmt->fetchAll(), 'match_api_id');
+    }
+
+    $refreshLimit = (int)CRON_MATCH_REFRESH_LIMIT;
+    $stmt = $pdo->prepare("
+        SELECT
+            p.match_api_id,
+            m.status,
+            m.event_date,
+            SUM(CASE WHEN p.result_checked = 0 THEN 1 ELSE 0 END) AS pending_predictions
+        FROM predictions p
+        INNER JOIN matches_cache m ON m.api_id = p.match_api_id
+        GROUP BY p.match_api_id, m.status, m.event_date
         ORDER BY 
             CASE 
-                WHEN m.status IN ('inprogress','1st_half','halftime','2nd_half','extra_time','penalties','live') THEN 1
-                WHEN m.status IN ('finished','ft','full_time') THEN 2
-                WHEN DATE(m.event_date) = CURDATE() THEN 3
-                ELSE 4
+                WHEN SUM(CASE WHEN p.result_checked = 0 THEN 1 ELSE 0 END) > 0
+                     AND DATE(m.event_date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) THEN 1
+                WHEN SUM(CASE WHEN p.result_checked = 0 THEN 1 ELSE 0 END) > 0
+                     AND m.event_date <= NOW() THEN 2
+                WHEN LOWER(m.status) IN ('inprogress','1st_half','halftime','2nd_half','extra_time','penalties','live') THEN 3
+                WHEN LOWER(m.status) IN ('finished','ft','full_time','completed','complete','ended','final','after_extra_time','aet','after_penalties','penalties_finished') THEN 4
+                WHEN DATE(m.event_date) = CURDATE() THEN 5
+                ELSE 6
             END,
+            CASE WHEN m.event_date <= NOW() THEN m.event_date END DESC,
             m.event_date ASC
-        LIMIT 20
+        LIMIT $refreshLimit
     ");
     $stmt->execute();
-    $matchIds = array_column($stmt->fetchAll(), 'match_api_id');
-    echo "   • Encontrados: " . count($matchIds) . " partidos\n";
+    $matchIds = array_values(array_unique(array_merge(
+        $urgentMatchIds,
+        array_column($stmt->fetchAll(), 'match_api_id')
+    )));
+    echo "   • Encontrados: " . count($matchIds) . " partidos para actualizar";
+    if (!$fullSync && $candidateCount > $refreshLimit) {
+        echo " de $candidateCount candidatos";
+    }
+    if (!empty($urgentMatchIds)) {
+        $includedLabel = $fullSync ? 'incluidos por modo full' : 'vencidos/relevantes incluidos sin límite';
+        echo " (" . count($urgentMatchIds) . " $includedLabel)";
+    }
+    echo "\n";
 
     // 2. Actualizar cada partido desde la API
     echo "   • Actualizando datos de la API...\n";
@@ -113,6 +198,14 @@ foreach ($databases as $dbName) {
                  current_minute, period, round_number, is_mundial, raw_json)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON DUPLICATE KEY UPDATE
+                league_id       = VALUES(league_id),
+                league_name     = VALUES(league_name),
+                league_country  = VALUES(league_country),
+                season_id       = VALUES(season_id),
+                season_name     = VALUES(season_name),
+                home_team       = VALUES(home_team),
+                away_team       = VALUES(away_team),
+                event_date      = VALUES(event_date),
                 status          = VALUES(status),
                 home_score      = VALUES(home_score),
                 away_score      = VALUES(away_score),
@@ -120,6 +213,8 @@ foreach ($databases as $dbName) {
                 away_score_ht   = VALUES(away_score_ht),
                 current_minute  = VALUES(current_minute),
                 period          = VALUES(period),
+                round_number    = VALUES(round_number),
+                is_mundial      = VALUES(is_mundial),
                 raw_json        = VALUES(raw_json),
                 cached_at       = NOW()
         ")->execute([
@@ -140,11 +235,11 @@ foreach ($databases as $dbName) {
             $match['current_minute']    ?? null,
             $match['period']            ?? null,
             $match['round_number']      ?? null,
-            1,
+            (isset($match['league']['id']) && (int)$match['league']['id'] === 27) ? 1 : 0,
             json_encode($match),
         ]);
         
-        if (in_array($match['status'], ['finished', 'ft', 'full_time'])) {
+        if (in_array(strtolower(trim($match['status'] ?? '')), FINISHED_STATUSES, true)) {
             $finished++;
         }
         $updated++;
@@ -174,11 +269,13 @@ foreach ($databases as $dbName) {
         FROM predictions p
         INNER JOIN matches_cache m ON m.api_id = p.match_api_id
         WHERE
-            m.status     IN ('finished','ft','full_time')
+            LOWER(m.status) IN ('finished','ft','full_time','completed','complete','ended','final','after_extra_time','aet','after_penalties','penalties_finished')
             AND m.home_score IS NOT NULL
             AND m.away_score IS NOT NULL
             AND (
                 p.result_checked = 0
+                OR p.last_real_home IS NULL
+                OR p.last_real_away IS NULL
                 OR p.last_real_home <> m.home_score
                 OR p.last_real_away <> m.away_score
             )
@@ -258,5 +355,48 @@ function calculatePoints(int $homePred, int $awayPred, int $realHome, int $realA
     }
 
     return [0, 0, 0];
+}
+
+function getRequestOption(string $name): ?string
+{
+    if (php_sapi_name() === 'cli') {
+        return null;
+    }
+
+    return isset($_GET[$name]) ? trim((string)$_GET[$name]) : null;
+}
+
+function getCliOption(string $name): ?string
+{
+    foreach ($_SERVER['argv'] ?? [] as $arg) {
+        if (strpos($arg, "--$name=") === 0) {
+            return trim(substr($arg, strlen($name) + 3));
+        }
+    }
+
+    return null;
+}
+
+function hasCliFlag(string $name): bool
+{
+    return in_array("--$name", $_SERVER['argv'] ?? [], true);
+}
+
+function getExpectedCronSecret(): ?string
+{
+    $envSecret = getenv('MATCHDAY_CRON_SECRET');
+    if (is_string($envSecret) && trim($envSecret) !== '') {
+        return trim($envSecret);
+    }
+
+    $secretFile = __DIR__ . '/.cron_secret';
+    if (is_readable($secretFile)) {
+        $fileSecret = trim((string)file_get_contents($secretFile));
+        if ($fileSecret !== '') {
+            return $fileSecret;
+        }
+    }
+
+    return null;
 }
 ?>
