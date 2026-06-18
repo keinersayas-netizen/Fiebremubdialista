@@ -1,0 +1,1242 @@
+  Growing Discord community — direct access to the developer, live coverage & picks. Join now →×
+BSD
+Search teams, players, leagues…
+Docs
+Leagues
+Showcase
+Feedback
+Donate 💸
+More
+sayas2007 
+Home
+Documentation
+Documentation
+Overview
+Authentication
+Pagination
+Errors
+Timezone
+Endpoints
+Leagues
+Seasons
+Teams
+Events
+Fixtures / Matches
+★ Spatial Data
+Live Scores
+Predictions
+Players
+Player Stats
+Odds Comparison
+Managers
+Venues
+TV Channels
+Broadcasts
+Referees
+Predicted Lineups BETA
+API Documentation
+Complete reference for the BSD Public API. Free, no rate limits, no credit card.
+
+API v2 is here — slimmer payloads, structured stats, predictable types.
+Prefer interactive docs?
+Overview
+The BSD API provides read-only access to football data and machine learning predictions. All responses are JSON.
+
+Base URL	https://sports.bzzoiro.com/api/
+Format	JSON
+Auth	Token-based (see below)
+Methods	GET only (read-only API)
+Price	Free
+Authentication
+Every API request requires a token. Get yours by registering a free account.
+
+Include the token in the Authorization header:
+
+Authorization: Token YOUR_API_KEY
+Example:
+
+curl -H "Authorization: Token abc123def456" https://sports.bzzoiro.com/api/leagues/
+Unauthenticated requests return 401 Unauthorized. You can view and regenerate your token at /dashboard/.
+Pagination
+All list endpoints return paginated results. Default page size and navigation style vary by endpoint (see table below).
+
+{
+  "count": 243,
+  "next": "https://sports.bzzoiro.com/api/managers/?page=2",
+  "previous": null,
+  "results": [ ... ]
+}
+Field	Type	Description
+count	integer	Total number of results
+next	string | null	URL to the next page
+previous	string | null	URL to the previous page
+results	array	Array of objects for the current page
+Endpoints	Style	Default	Max	Navigation
+/api/events/, /api/live/	Limit-Offset	50	200	?limit=50&offset=50
+All other list endpoints	Page-Number	100	500	?page=2
+Error Responses
+Code	Meaning	Example
+401	Unauthorized	Missing or invalid token
+404	Not Found	Invalid endpoint or object ID
+500	Server Error	Unexpected server issue
+Timezone Support
+By default, all dates are returned in the server timezone (Asia/Dubai, UTC+4). You can pass a tz query parameter to shift dates to your local timezone.
+
+Param	Type	Description
+tz	string	IANA timezone name (e.g. Europe/Warsaw, America/New_York, UTC)
+When provided, the tz parameter:
+
+Converts event_date and other datetime fields to the specified timezone
+Adjusts date_from / date_to filters to use your local date boundaries
+Example: A match at 21:00 CET (UTC+1) is stored as 00:00+04:00 (next day in Dubai). Without tz, filtering by the original date would miss it.
+
+# Without tz: dates in Asia/Dubai (UTC+4)
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/events/?date_from=2026-03-07"
+
+# With tz: dates in Europe/Warsaw (UTC+1)
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/events/?date_from=2026-03-07&tz=Europe/Warsaw"
+Supported on: /api/events/, /api/live/, /api/predictions/, /api/player-stats/. Invalid timezone values are silently ignored (server default is used).
+
+Endpoints
+GET
+/api/leagues/
+Returns all active leagues/tournaments. Cached for 5 minutes.
+
+Parameters
+None. Returns all active leagues.
+
+Response fields
+Field	Type	Description
+id	integer	Internal league ID
+name	string	League name (e.g. "Premier League")
+country	string	Country (e.g. "England")
+is_women	boolean	True if this is a women's competition
+current_season	object | null	Current season details: {id, name, year, start_date, end_date}. Null if no season is marked as current.
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     https://sports.bzzoiro.com/api/leagues/
+{
+  "count": 32,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 1,
+      "name": "Premier League",
+      "country": "England",
+      "is_women": false,
+      "current_season": {
+        "id": 42,
+        "name": "Premier League 25/26",
+        "year": 2025,
+        "start_date": "2025-08-16",
+        "end_date": "2026-05-24"
+      }
+    },
+    ...
+  ]
+}
+Detail: GET /api/leagues/{id}/ returns a single league by its id.
+Standings: GET /api/leagues/{id}/standings/ returns the current standings table for a league. Optional ?season=ID parameter to get standings for a specific season (defaults to the current season). Response: {league, season: {id, name, year}, standings: [{position, team, team_id, played, won, drawn, lost, gf, ga, gd, pts, xgf, xga, xgd, form, live}]}.
+GET
+/api/seasons/
+Returns seasons for all leagues. Use this to discover available historical data and filter events by season. 8 major leagues with up to 15+ years of history (58,000+ matches total).
+
+Query parameters
+Param	Type	Required	Description
+league	integer	No	Filter by league id (get IDs from /api/leagues/). E.g. ?league=1
+current	boolean	No	Set to true to return only the current season per league. E.g. ?current=true
+Response fields
+Field	Type	Description
+id	integer	Internal season ID (use this to filter events via /api/events/?season=ID)
+league	string	League name
+league_id	integer	League internal ID
+name	string	Season name (e.g. "Premier League 24/25")
+year	integer | null	Start year of the season (e.g. 2025)
+start_date	date | null	Season start date (YYYY-MM-DD)
+end_date	date | null	Season end date (YYYY-MM-DD)
+is_current	boolean	True if this is the current active season
+Example
+# Get all seasons for Premier League
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/seasons/?league=1"
+{
+  "count": 16,
+  "results": [
+    {
+      "id": 42,
+      "league": "Premier League",
+      "league_id": 1,
+      "name": "Premier League 25/26",
+      "year": 2025,
+      "start_date": "2025-08-16",
+      "end_date": "2026-05-24",
+      "is_current": true
+    },
+    {
+      "id": 41,
+      "league": "Premier League",
+      "league_id": 1,
+      "name": "Premier League 24/25",
+      "year": 2024,
+      "start_date": "2024-08-17",
+      "end_date": "2025-05-25",
+      "is_current": false
+    },
+    ...
+  ]
+}
+Tip: Use the season id with /api/events/?season=42 to retrieve all matches from a specific season. This bypasses the default 7-day window, so you get the full season at once.
+GET
+/api/teams/
+Returns all teams. Cached for 5 minutes.
+
+Query parameters
+Param	Type	Required	Description
+country	string	No	Filter by country (case-insensitive). E.g. ?country=Spain
+league	integer	No	Filter by league id. Returns all teams that play in that league. E.g. ?league=1
+in_competition	string	No	Requires league. true = only teams with future matches (still active); false = teams eliminated (no upcoming matches). E.g. ?league=1&in_competition=true
+Response fields
+Field	Type	Endpoint	Description
+id	integer	list + detail	Internal team ID
+name	string	list + detail	Full team name
+short_name	string	list + detail	Short name (e.g. "FCB")
+country	string	list + detail	Country of origin
+coach	object | null	detail only	Current head coach: {name, shortName}, derived from most recent match data. Null if unavailable.
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/teams/?country=Spain"
+{
+  "count": 42,
+  "results": [
+    {
+      "id": 44,
+      "name": "Barcelona",
+      "short_name": "Barcelona",
+      "country": "Spain"
+    },
+    {
+      "id": 2,
+      "name": "Real Madrid",
+      "short_name": "Real Madrid",
+      "country": "Spain"
+    },
+    ...
+  ]
+}
+Detail: GET /api/teams/{id}/ returns a single team including the coach field and a social array (up to 20 recent tweets + highlight videos linked to the club).
+Tip: Use ?league=1&in_competition=true to get only the teams still active in a competition (have upcoming matches).
+GET
+/api/events/
+Returns matches. Cached for 2 minutes.
+
+Important: If no date_from, date_to, or season is provided, only matches from the last 3 hours through the next 7 days are returned (this includes live and recently finished matches). Use ?season=ID to get all matches from a specific season (bypasses this window), or specify date filters for custom ranges.
+Example: /api/events/?season=42 or /api/events/?league=27&date_from=2026-06-01&date_to=2026-07-31
+Query parameters
+Param	Type	Required	Description
+date_from	date	No	Start date (YYYY-MM-DD). If omitted (and no date_to), defaults to today
+date_to	date	No	End date (YYYY-MM-DD). If omitted (and no date_from), defaults to today + 7 days
+league	integer	No	Filter by league id (get IDs from /api/leagues/)
+season	integer	No	Filter by season id (get IDs from /api/seasons/). Bypasses the default 7-day window. E.g. ?season=42
+team	string	No	Filter by team name (case-insensitive, partial match). E.g. ?team=Madrid
+team_id	integer	No	Filter by team id (exact match, home or away). E.g. ?team_id=2932
+status	string	No	Filter by status (see values below)
+tz	string	No	Timezone for dates (e.g. Europe/Warsaw). See Timezone Support
+full	boolean	No	Set to true to include spatial data fields (lineups, shotmap, momentum, average_positions). Excluded by default for faster responses. Also applies to GET /api/events/{id}/.
+Status values
+notstarted inprogress 1st_half halftime 2nd_half finished postponed cancelled
+Response fields
+Field	Type	Description
+id	integer	Internal event ID
+league	object	Nested league: {id, name, country, is_women, current_season}. The current_season sub-object has: {id, name, year, start_date, end_date}
+season	object | null	Season info. Null for events not yet assigned to a season.
+  season.id	integer	Season ID (use with /api/seasons/)
+  season.name	string	Season name (e.g. "2024/25")
+  season.year	integer | null	Season year (e.g. 2024)
+home_team	string	Home team name
+away_team	string	Away team name
+home_team_obj	object | null	Nested team object: {id, name, short_name, country, coach}
+away_team_obj	object | null	Nested team object: {id, name, short_name, country, coach}
+event_date	datetime	Kick-off time (ISO 8601)
+round_number	integer | null	Matchday / round number
+status	string	Match status
+home_score	integer | null	Home goals (full-time)
+away_score	integer | null	Away goals (full-time)
+home_score_ht	integer | null	Home goals at half-time (derived from incidents, null if 1st half or not started)
+away_score_ht	integer | null	Away goals at half-time (derived from incidents, null if 1st half or not started)
+current_minute	integer | null	Current minute (live only)
+period	string	Period: 1T, HT, 2T, FT
+Odds fields (consensus across ~14 bookmakers, null if unavailable)
+odds_home	float | null	Home win odds (1X2)
+odds_draw	float | null	Draw odds (1X2)
+odds_away	float | null	Away win odds (1X2)
+odds_over_15	float | null	Over 1.5 goals odds
+odds_over_25	float | null	Over 2.5 goals odds
+odds_over_35	float | null	Over 3.5 goals odds
+odds_under_15	float | null	Under 1.5 goals odds
+odds_under_25	float | null	Under 2.5 goals odds
+odds_under_35	float | null	Under 3.5 goals odds
+odds_btts_yes	float | null	Both Teams To Score Yes odds
+odds_btts_no	float | null	Both Teams To Score No odds
+Expected Goals (xG)
+actual_home_xg	float | null	Home team xG (post-match, from player stats aggregation)
+actual_away_xg	float | null	Away team xG (post-match, from player stats aggregation)
+home_xg_live	float | null	Home team xG from shotmap (live during match, falls back to actual_home_xg post-match)
+away_xg_live	float | null	Away team xG from shotmap (live during match, falls back to actual_away_xg post-match)
+Shootout
+penalty_shootout	object | null	Penalty shootout result: {home: X, away: Y}. Non-null only when a shootout was played (cup knockouts). Null for all regular-time results.
+Match Officials & Coaches (null if unavailable)
+referee	object | null	Referee info. Null if not available for this match.
+  referee.name	string	Referee full name
+  referee.yellowCards	integer	Yellow cards issued by this referee in this match
+  referee.redCards	integer	Red cards issued by this referee in this match
+home_coach	object | null	Home team head coach: {id, name, short_name, country, profile, preferred_formation, pressing_intensity, defensive_line, top_styles}. top_styles is a list of the top 2 tactical style codes (e.g. ["positional", "tiki_taka"]). Full breakdown at /api/managers/{id}/.
+away_coach	object | null	Away team head coach: same structure as home_coach
+unavailable_players	object | null	Players unavailable for this match, grouped by team: {home: [{name, status, reason, expected_return}], away: [...]}. Status values: injured, suspended, doubtful. Returns null if no unavailable players.
+Spatial Data
+lineups	array | null	Team lineups with player positions. Each item: {player_name, position, x, y, is_home}. See Spatial Data. Requires ?full=true on both the list and detail endpoints.
+shotmap	array | null	All shots in the match. Each item: {min, type, sit, body, home, xg, xgot, pos: {x, y}, gm: {y, z}, gml, pid}. See Spatial Data. Requires ?full=true on list and detail endpoints.
+momentum	array | null	Minute-by-minute pressure index. Each item: {m: minute (int), v: pressure (signed int)}. Positive v = home dominance, negative = away. See Spatial Data. Requires ?full=true on list and detail endpoints.
+xg_per_minute	array | null	Per-minute xG buckets aggregated from the shotmap. Each item: {m, xg_home, xg_away, cum_home, cum_away}. Use xg_home/xg_away for delta xG/min (a key live momentum signal); use cum_home/cum_away for the running total without re-summing the shotmap. Requires ?full=true on list and detail endpoints.
+average_positions	object | null	Average pitch positions per player during the match. Structure: {home: [{player, pid, pos: {x, y}, number}], away: [...]}. See Spatial Data. Requires ?full=true on list and detail endpoints.
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/events/?date_from=2026-02-08&date_to=2026-02-10&league=1"
+Detail: GET /api/events/{id}/ returns a single event with four additional fields not present in the list response:
+home_form / away_form — recent team form statistics: {matches_played, form_string, wins, draws, losses, points_last_n, goals_scored_last_n, goals_conceded_last_n, avg_xg, avg_xg_conceded, avg_shots, avg_shots_on_target, avg_key_passes, avg_pass_accuracy, clean_sheets, home_ppg, away_ppg, home_goals_scored, home_goals_conceded, away_goals_scored, away_goals_conceded, avg_fouls, avg_yellow_cards, avg_team_rating, goal_conversion_rate, defensive_efficiency, duel_win_rate, aerial_win_rate, calculated_at}
+head_to_head — head-to-head history: {total_matches, home_wins, draws, away_wins, home_goals, away_goals, avg_total_goals, home_win_rate, away_win_rate, recent_matches}
+lineups — spatial field, requires ?full=true (same as the list endpoint)
+social — up to 20 recent tweets + highlight videos linked to this fixture (same shape as /api/social/). Not included in /api/live/ to keep the live endpoint fast.
+GET
+/api/fixtures/  ·  /api/matches/
+Both are aliases for /api/events/. They return the same match data and accept all the same query parameters. Provided for compatibility with clients that expect /fixtures/ or /matches/ naming conventions.
+
+All query parameters, response fields, filtering, and pagination behavior are identical to GET /api/events/. See the Events section for full documentation and field reference.
+Examples
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/fixtures/?date_from=2026-04-20&league=1"
+
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/matches/?date_from=2026-04-20&league=1"
+Match Spatial Data
+StatsBomb-grade data, free
+Available now on event detail endpoints. The GET /api/events/{id}/ and GET /api/live/ responses now include per-shot expected goals with pitch coordinates, full goal build-up passing sequences, minute-by-minute momentum graphs, and real average player positions. This is the same caliber of spatial data that premium providers charge thousands of dollars per season for.
+⚽ Shotmap per-shot xG with coordinates
+The shotmap field on GET /api/events/{id}/ returns every shot in the match. Each entry contains the shooter's pitch position (pos.x, pos.y), the goal-mouth target (gm.y, gm.z), pre-shot xG, post-shot xGoT, body part, and situation (open play, set piece, corner, etc.).
+
+Coordinates use the standard 105×68 pitch grid. pos is where the shot was taken; gm maps to the goal frame (y = horizontal, z = height).
+
+"shotmap": [
+  {
+    "min": 26, "type": "goal", "sit": "corner", "body": "head",
+    "home": true, "xg": 0.383, "xgot": 0.949,
+    "pos": {"x": 3.9, "y": 45.8}, "gm": {"y": 54.4, "z": 13.9},
+    "gml": "low-left", "pid": 548194
+  },
+  {
+    "min": 53, "type": "save", "sit": "open-play", "body": "right-foot",
+    "home": false, "xg": 0.071, "xgot": 0.023,
+    "pos": {"x": 18.2, "y": 31.4}, "gm": {"y": 45.1, "z": 8.2},
+    "gml": "centre", "pid": 219847
+  }
+  // ... all shots in the match
+]
+⚡ Goal Build-up Sequences full passing chains with coordinates
+Goals in the incidents array now contain a sequence field: the complete passing chain that led to the goal. Every touch includes the player name, event type, origin and destination coordinates, plus metadata like assist flags, body part for the final shot, and goalkeeper position at the moment of the strike.
+
+"incidents": [
+  {
+    "type": "goal", "player": "D. Fry", "minute": 26,
+    "is_home": true, "assist": "A. Browne",
+    "home_score": 1, "away_score": 0,
+    "sequence": [
+      {"player": "A. Morris", "event": "pass",
+       "pos": {"x": 83.4, "y": 11.5},
+       "end": {"x": 82.3, "y": 20.7}},
+      {"player": "A. Browne", "event": "cross",
+       "pos": {"x": 82.8, "y": 22.5},
+       "end": {"x": 96.1, "y": 54.2}, "assist": true},
+      {"player": "D. Fry", "event": "goal",
+       "pos": {"x": 96.1, "y": 54.2}, "body": "head",
+       "gm": {"y": 54.4, "z": 13.9},
+       "gk": {"x": 99.5, "y": 51.4}}
+    ]
+  }
+  // ... other incidents (cards, subs, etc.)
+]
+Visualized: Corner → Cross → Header Goal
+A. Morris
+A. Browne
+D. Fry
+● pass → ● assist → ● GOAL (xG 0.38, header, from corner)
+📈 Momentum Graph minute-by-minute pressure
+The momentum field provides a minute-by-minute pressure index. Positive values indicate home-team dominance, negative values indicate away-team dominance. Use it to build momentum charts, detect surges, or feed into in-play models.
+
+"momentum": [
+  {"m": 1, "v": 12},
+  {"m": 2, "v": -5},
+  {"m": 3, "v": 28},
+  {"m": 4, "v": -15},
+  // ... one entry per minute played (m = minute, v = signed pressure)
+  {"m": 90, "v": 8}
+]
+⚽ xG per Minute delta + cumulative xG bucketed by minute
+The xg_per_minute field bucketises the shotmap by minute and pre-computes both the per-team delta xG and the running cumulative totals. A spike in xg_home or xg_away in the 70th minute is one of the strongest in-play momentum signals; the cumulative pair lets you draw the classic stair-step xG chart without re-summing the shotmap on every poll.
+
+"xg_per_minute": [
+  {"m": 12, "xg_home": 0.07, "xg_away": 0.0,  "cum_home": 0.07, "cum_away": 0.0},
+  {"m": 24, "xg_home": 0.0,  "xg_away": 0.31, "cum_home": 0.07, "cum_away": 0.31},
+  {"m": 38, "xg_home": 0.42, "xg_away": 0.0,  "cum_home": 0.49, "cum_away": 0.31},
+  // ... one entry per minute that had at least one shot
+  {"m": 88, "xg_home": 0.0,  "xg_away": 0.18, "cum_home": 1.34, "cum_away": 1.10}
+]
+Minutes with no shots are skipped to keep payloads small. To draw a continuous time series, fill gaps with zero deltas and carry the previous cum_home/cum_away forward.
+
+👥 Average Positions real formation with x,y per player
+The average_positions field returns each player's average pitch position during the match, grouped by team. Use it to reconstruct actual formations, identify asymmetric fullbacks, inverted wingers, or compare tactical setups.
+
+"average_positions": {
+  "home": [
+    {"player": "D. Fry", "pid": 548194, "pos": {"x": 88.3, "y": 34.1}, "number": 9},
+    {"player": "A. Browne", "pid": 331022, "pos": {"x": 72.1, "y": 12.8}, "number": 7},
+    // ... 11 players
+  ],
+  "away": [
+    {"player": "L. Martinez", "pid": 220495, "pos": {"x": 25.4, "y": 33.8}, "number": 6},
+    // ... 11 players
+  ]
+}
+Availability: Spatial data fields (shotmap, momentum, average_positions, lineups) are populated for finished and in-progress matches. Fields return null for matches that have not started. Data coverage spans all supported leagues.
+GET
+/api/live/
+Returns only matches currently in play with real-time scores, minute, incidents (goals, cards, substitutions) and live statistics. Cached for 30 seconds.
+
+Query parameters
+Param	Type	Required	Description
+tz	string	No	Timezone for dates (e.g. Europe/Warsaw). See Timezone Support
+full	boolean	No	Set to true to include spatial data fields (lineups, shotmap, momentum, average_positions). Excluded by default for faster responses. Momentum and shotmap update in real time during the match.
+Response fields
+Same fields as Events, plus:
+
+Field	Type	Description
+incidents	array | null	List of match incidents. Each item has type ("goal", "card", "substitution"), minute, is_home. Goals and cards also have player_name. Substitutions have player_in (substitute coming on) and player_out (player being replaced), plus player_in_id and player_out_id.
+live_stats	object | null	Live statistics with home and away sub-objects containing: ball_possession, total_shots, shots_on_target, corner_kicks, fouls, yellow_cards, red_cards, offsides, etc.
+home_xg_live	float | null	Home team total xG so far in the match (sum of per-shot xG from the live shotmap). Updates in real time alongside the shotmap. Returned by default — no ?full=true needed — so xG-based live models don't have to fetch the full shotmap on every poll.
+away_xg_live	float | null	Away team total xG so far in the match (sum of per-shot xG from the live shotmap). Updates in real time. Returned by default.
+lineups	array | null	Team lineups with player positions. Each item: {player_name, position, x, y, is_home}. Requires ?full=true. See Spatial Data.
+shotmap	array | null	All shots so far in the match with per-shot xG and pitch coordinates. Each item: {min, type, sit, body, home, xg, xgot, pos, gm, gml, pid}. Updates in real time. Requires ?full=true. See Spatial Data.
+momentum	array | null	Minute-by-minute pressure index. Each item: {m: minute (int), v: pressure (signed int)}. Positive v = home dominance, negative = away. Updates every minute. Requires ?full=true. See Spatial Data.
+xg_per_minute	array | null	Per-minute xG buckets aggregated from the live shotmap. Each item: {m, xg_home, xg_away, cum_home, cum_away}. Updates in real time. Requires ?full=true. See Spatial Data.
+average_positions	array | null	Average pitch positions per player accumulated so far in the match. Requires ?full=true. See Spatial Data.
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     https://sports.bzzoiro.com/api/live/
+{
+  "count": 3,
+  "results": [
+    {
+      "id": 580,
+      "home_team": "Liverpool",
+      "away_team": "Arsenal",
+      "home_score": 2,
+      "away_score": 1,
+      "current_minute": 67,
+      "period": "2T",
+      "status": "2nd_half",
+      "incidents": [
+        {"type": "goal", "minute": 12, "player_name": "Salah", "is_home": true},
+        {"type": "goal", "minute": 34, "player_name": "Saka", "is_home": false},
+        {"type": "card", "minute": 50, "player_name": "White", "card_type": "yellow", "is_home": false},
+        {"type": "substitution", "minute": 60, "player_in": "Diaz", "player_out": "Nunez", "player_in_id": 982119, "player_out_id": 930829, "is_home": true}
+      ],
+      "live_stats": {
+        "home": {"ball_possession": 52, "total_shots": 14, "shots_on_target": 6, "corner_kicks": 5},
+        "away": {"ball_possession": 48, "total_shots": 10, "shots_on_target": 4, "corner_kicks": 3}
+      },
+      "league": {"name": "Premier League", "country": "England"},
+      ...
+    }
+  ]
+}
+Note: This endpoint returns an empty list when no matches are being played. The incidents and live_stats fields may be null for matches that just started.
+GET
+/api/predictions/
+Returns CatBoost ML predictions for football matches. Defaults to upcoming matches. Cached for 2 minutes.
+
+Query parameters
+Param	Type	Required	Description
+upcoming	boolean	No	Default true. Set false to include past predictions. Ignored when date_from or date_to is set.
+date_from	date	No	Start date (YYYY-MM-DD). Overrides upcoming filter.
+date_to	date	No	End date (YYYY-MM-DD). Overrides upcoming filter.
+league	integer	No	Filter by league id (get IDs from /api/leagues/)
+tz	string	No	Timezone for dates (e.g. Europe/Warsaw). See Timezone Support
+Response fields
+Field	Type	Description
+id	integer	Prediction ID
+event	object	Full nested event object (see Events)
+created_at	datetime	When the prediction was generated
+1X2 Probabilities
+prob_home_win	float	Probability of home win (0-100)
+prob_draw	float	Probability of draw (0-100)
+prob_away_win	float	Probability of away win (0-100)
+predicted_result	string	H (Home), D (Draw), or A (Away)
+Expected Goals
+expected_home_goals	float	Expected goals for home team
+expected_away_goals	float	Expected goals for away team
+Over/Under Markets
+prob_over_15	float | null	P(total goals > 1.5) (0-100)
+prob_over_25	float	P(total goals > 2.5) (0-100)
+prob_over_35	float | null	P(total goals > 3.5) (0-100)
+prob_btts_yes	float	P(both teams score) (0-100)
+Recommendations
+confidence	float	Model confidence (0-1)
+model_version	string	ML model version
+most_likely_score	string	Most probable scoreline (e.g. "2-1")
+favorite	string | null	H or A — which team is favored
+favorite_prob	float | null	Favorite's win probability
+favorite_recommend	boolean	Model recommends betting on the favorite
+over_15_recommend	boolean	Model recommends Over 1.5
+over_25_recommend	boolean	Model recommends Over 2.5
+over_35_recommend	boolean	Model recommends Over 3.5
+btts_recommend	boolean	Model recommends BTTS
+winner_recommend	boolean	Model recommends "has a winner" (no draw)
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     https://sports.bzzoiro.com/api/predictions/
+{
+  "count": 48,
+  "results": [
+    {
+      "id": 87,
+      "event": {
+        "id": 580,
+        "home_team": "Liverpool",
+        "away_team": "Arsenal",
+        "event_date": "2026-02-10T17:30:00+0400",
+        "league": {"name": "Premier League", "country": "England"},
+        ...
+      },
+      "prob_home_win": 52.3,
+      "prob_draw": 24.1,
+      "prob_away_win": 23.6,
+      "predicted_result": "H",
+      "expected_home_goals": 1.82,
+      "expected_away_goals": 1.14,
+      "prob_over_15": 87.4,
+      "prob_over_25": 61.2,
+      "prob_over_35": 28.7,
+      "prob_btts_yes": 58.9,
+      "confidence": 0.72,
+      "model_version": "CatBoost v4.0",
+      "most_likely_score": "2-1",
+      "favorite": "H",
+      "favorite_prob": 52.3,
+      "favorite_recommend": true,
+      "over_25_recommend": true,
+      "btts_recommend": true,
+      ...
+    }
+  ]
+}
+Detail: GET /api/predictions/{id}/ returns a single prediction.
+Past results: Use ?upcoming=false to get predictions for finished matches.
+GET
+/api/players/
+Returns football players. 8,900+ players across all covered leagues. Each player has a club team (current_team) and optionally a national team (national_team). Cached for 5 minutes.
+
+Query parameters
+Param	Type	Required	Description
+team	integer	No	Filter by club team id. E.g. ?team=44 (Barcelona)
+national_team	integer	No	Filter by national team id. E.g. ?national_team=475 (Spain)
+nationality	string	No	Filter by nationality (case-insensitive). E.g. ?nationality=Brazil
+position	string	No	Filter by position: G (Goalkeeper), D (Defender), M (Midfielder), F (Forward)
+search	string	No	Search by player name or short name (case-insensitive). E.g. ?search=Salah
+Response fields
+Field	Type	Description
+id	integer	Internal player ID
+name	string	Full name
+short_name	string	Short name (e.g. "M. Salah")
+position	string	G, D, M, or F
+jersey_number	integer | null	Shirt number
+height	integer | null	Height in cm
+date_of_birth	date | null	Date of birth (YYYY-MM-DD)
+nationality	string	Country of nationality
+weight	integer | null	Weight in kg
+preferred_foot	string | null	Preferred foot: R (Right), L (Left), B (Both)
+contract_until	date | null	Contract end date (YYYY-MM-DD)
+market_value	integer | null	Market value in EUR
+availability	string | null	Current availability: available, injured, doubtful, suspended
+injury_type	string | null	Injury or suspension description (e.g. "Hamstring Injury", "Red card suspension")
+injury_expected_return	date | null	Expected return date (YYYY-MM-DD)
+current_team	object | null	Club team — nested team object: {id, name, short_name, country, coach}
+national_team	object | null	National team — same structure as current_team. Only set for players who have played international matches
+transfers	array	Transfer history, newest first. See sub-fields below.
+Each item in transfers[]
+  transfer_date	date | null	Date the transfer was completed (YYYY-MM-DD)
+  from_team	object | null	Selling club — nested team object: {id, name, short_name, country, coach}. Null if club is not in our dataset.
+  to_team	object | null	Buying club — same structure as from_team. Null if club is not in our dataset.
+  from_team_name	string	Selling club name as a string fallback (always populated even when from_team is null)
+  to_team_name	string	Buying club name as a string fallback (always populated even when to_team is null)
+  fee	integer | null	Transfer fee in EUR (null if undisclosed or free transfer)
+  fee_description	string	Human-readable fee label (e.g. "Free transfer", "Loan", "€45M")
+Examples
+# Get all Brazilian forwards
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/players/?position=F&nationality=Brazil"
+
+# Get Spain national team squad
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/players/?national_team=475"
+
+# Get Barcelona squad
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/players/?team=44"
+{
+  "count": 27,
+  "results": [
+    {
+      "id": 1234,
+      "name": "Lamine Yamal",
+      "short_name": "L. Yamal",
+      "position": "M",
+      "jersey_number": 19,
+      "height": 180,
+      "date_of_birth": "2007-07-13",
+      "nationality": "Spain",
+      "market_value": 150000000,
+      "current_team": {
+        "id": 44,
+        "name": "Barcelona",
+        "short_name": "Barcelona",
+        "country": "Spain"
+      },
+      "national_team": {
+        "id": 475,
+        "name": "Spain",
+        "short_name": "Spain",
+        "country": "Spain"
+      },
+      "transfers": [
+        {
+          "transfer_date": "2023-07-15",
+          "from_team": {"id": 2, "name": "Real Madrid", "short_name": "Real Madrid", "country": "Spain", "coach": null},
+          "to_team": {"id": 44, "name": "Barcelona", "short_name": "Barcelona", "country": "Spain", "coach": null},
+          "from_team_name": "Real Madrid",
+          "to_team_name": "Barcelona",
+          "fee": 45000000,
+          "fee_description": "€45M"
+        }
+      ]
+    },
+    ...
+  ]
+}
+Detail: GET /api/players/{id}/ returns a single player with both club and national team.
+Tip: Use ?team= for club squads (e.g. Barcelona) and ?national_team= for international squads (e.g. Spain World Cup roster).
+GET
+/api/player-stats/
+Returns per-match player statistics. 139,000+ stat records across all covered leagues. Cached for 5 minutes.
+
+Filter required: At least one of player, event, or team must be provided. Requests with no filters return an empty result set.
+Query parameters
+Param	Type	Required	Description
+player	integer	No	Filter by player id
+event	integer	No	Filter by event id (all player stats for a match)
+team	integer	No	Filter by team id
+tz	string	No	Timezone for dates (e.g. Europe/Warsaw). See Timezone Support
+Response fields
+Field	Type	Description
+event	object	Match context for this stat record
+  event.id	integer	Event ID
+  event.home_team	string	Home team name
+  event.away_team	string	Away team name
+  event.event_date	datetime	Kick-off time (ISO 8601)
+  event.home_score	integer | null	Home goals (full-time)
+  event.away_score	integer | null	Away goals (full-time)
+player	object	Player identity for this stat record
+  player.id	integer	Player ID (use with /api/players/{id}/)
+  player.name	string	Player full name
+  player.short_name	string	Short name (e.g. "M. Salah")
+  player.position	string	Position: G, D, M, F
+  player.team	string | null	Team name for this match (string, not a team object)
+General
+minutes_played	integer	Minutes on the pitch
+rating	float | null	Match rating (1-10 scale)
+touches	integer	Total ball touches
+Attack
+goals	integer	Goals scored
+goal_assist	integer	Assists
+expected_goals	float | null	xG
+expected_assists	float | null	xA
+total_shots	integer	Total shots
+shots_on_target	integer	Shots on target
+Passing
+total_pass	integer	Total passes attempted
+accurate_pass	integer	Accurate passes
+key_pass	integer	Key passes (leading to a shot)
+total_cross	integer	Crosses attempted
+accurate_cross	integer	Accurate crosses
+total_long_balls	integer	Long balls attempted
+accurate_long_balls	integer	Accurate long balls
+Duels
+duel_won	integer	Duels won
+duel_lost	integer	Duels lost
+aerial_won	integer	Aerial duels won
+aerial_lost	integer	Aerial duels lost
+Defense
+total_tackle	integer	Tackles attempted
+won_tackle	integer	Tackles won
+total_clearance	integer	Clearances
+interception	integer	Interceptions
+ball_recovery	integer	Ball recoveries
+Discipline & Other
+dispossessed	integer	Times dispossessed
+possession_lost	integer	Possession lost
+was_fouled	integer	Fouls suffered
+fouls	integer	Fouls committed
+yellow_card	integer	Yellow cards
+red_card	integer	Red cards
+Penalties
+penalty_won	integer | null	Penalties won (earned via foul in the box)
+penalty_miss	integer | null	Penalties missed (shot saved or off target)
+penalty_conceded	integer | null	Penalties conceded (fouls committed in the box)
+Goalkeeper
+saves	integer | null	Saves made (null for outfield players)
+goals_conceded	integer | null	Goals conceded (null for outfield players)
+penalty_save	integer | null	Penalties saved (goalkeeper only)
+penalty_faced	integer | null	Penalties faced (goalkeeper only)
+Spatial
+heatmap	array | null	Pitch heatmap — list of {x, y} touch coordinates on a 0–100 scale, origin top-left
+Example
+# Get all stats for a player
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/player-stats/?player=1234"
+
+# Get all player stats for a specific match
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/player-stats/?event=917"
+{
+  "count": 31,
+  "results": [
+    {
+      "event": {
+        "id": 3746,
+        "home_team": "Swansea City",
+        "away_team": "Sheffield Wednesday",
+        "event_date": "2026-02-08T12:00:00Z",
+        "home_score": 4,
+        "away_score": 0
+      },
+      "player": {
+        "id": 548194,
+        "name": "Dan Fry",
+        "short_name": "D. Fry",
+        "position": "D",
+        "team": "Swansea City"
+      },
+      "minutes_played": 90,
+      "rating": 7.8,
+      "goals": 1,
+      "goal_assist": 1,
+      "expected_goals": 0.85,
+      "expected_assists": 0.32,
+      "total_shots": 3,
+      "shots_on_target": 2,
+      "total_pass": 41,
+      "accurate_pass": 32,
+      "key_pass": 2,
+      "touches": 56,
+      "duel_won": 4,
+      "duel_lost": 2,
+      "total_tackle": 1,
+      "won_tackle": 1,
+      "yellow_card": 0,
+      "red_card": 0,
+      "saves": 0,
+      "goals_conceded": 0,
+      ...
+    }
+  ]
+}
+Detail: GET /api/player-stats/{id}/ returns a single stat record.
+Tip: Combine ?player= with the player id from /api/players/ to get a player's full match history.
+GET
+/api/odds/
+Multi-bookmaker odds with full price history. The listing endpoint refreshes consensus pricing every 6 hours; per-bookmaker prices refresh every 3 hours. Each row carries the previous price so movement is visible without a separate history call.
+
+Endpoints
+GET /api/odds/	List odds with filters (paginated). With ?event=ID returns an envelope containing all odds for that match.
+GET /api/odds/{id}/	Single odds row by id. If the id matches an Event, falls back to the event-envelope shape.
+GET /api/odds/compare/?event=ID	Side-by-side comparison for one match (best price per outcome highlighted)
+GET /api/odds/best/?market=1x2&days=3	Best available odds per outcome for upcoming events
+GET /api/odds/bookmakers/	List all bookmakers currently observed in the feed
+GET /api/odds/polymarket/	Polymarket prediction market prices (probabilities 0-1)
+Filters
+event	Event ID
+market	1x2, btts, over_under_15, over_under_25, over_under_35, double_chance, draw_no_bet. Default: 1x2. Use all to disable.
+bookmaker	Bookmaker slug or display name (e.g. pinnacle, bet365)
+league	League ID
+outcome	HOME, DRAW, AWAY, over, under, yes, no, 1X, 12, X2
+Bookmakers
+Pinnacle, Bet365, Betano, Bwin, William Hill, Unibet, Betsson, Sportingbet, Interwetten, Mozzartbet, Novibet, Betway, 888Sport, 1xBet, plus a synthetic oddssafari-consensus entry that averages the rest.
+
+Markets
+1x2 (Match Result), double_chance (1X / 12 / X2), over_under_15, over_under_25, over_under_35, btts (Both Teams to Score), draw_no_bet.
+
+Response fields (GET /api/odds/?event=ID)
+When filtering by a single event, the response has a root-level event object and an odds array. For multi-event queries, the standard paginated envelope is returned.
+
+Field	Type	Description
+event	object | null	Match context — only present when ?event=ID filter is used
+  event.id	integer	Event ID
+  event.home_team	string	Home team name
+  event.away_team	string	Away team name
+  event.event_date	datetime	Kick-off time (ISO 8601)
+  event.league	string	League name (e.g. "Premier League")
+count	integer	Total number of odds snapshots returned
+odds	array	List of odds snapshots for this event — each item has the fields below
+Each item in odds[]
+id	integer	Internal odds row id
+market	string	Odds market: 1x2, over_under_15, over_under_25, over_under_35, btts, double_chance, draw_no_bet
+outcome	string	Outcome code: HOME, DRAW, AWAY, over, under, yes, no, 1X, 12, X2
+outcome_name	string	Human-readable label (e.g. "Over 2.5", "Manchester United")
+bookmaker	string	Bookmaker display name (e.g. "Pinnacle")
+bookmaker_code	string	Bookmaker slug (e.g. "pinnacle", "bet365")
+decimal_odds	float	Decimal odds — European format (e.g. 1.90)
+previous_decimal_odds	float | null	Prior decimal odds for the same (event, bookmaker, market). Lets you compute movement client-side without fetching history. Falls back to our most recent stored price when the upstream feed doesn't supply one.
+is_max_quote	boolean	True when this row was flagged as the best price for its outcome at observation time.
+implied_probability	float	1 / decimal_odds (0–1). No vig adjustment.
+movement	string	Direction vs previous_decimal_odds: SHORTENING (price ↓ → outcome more likely), DRIFTING (price ↑ → outcome less likely), or empty when unchanged or no prior price.
+updated_at	datetime	Timestamp the source reported this price (ISO 8601)
+Examples
+GET /api/odds/?event=997&market=1x2 — raw odds list (paginated)
+
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/odds/?event=997&market=1x2"
+{
+  "event": {
+    "id": 997,
+    "home_team": "Osasuna", "away_team": "Real Betis",
+    "event_date": "2026-04-12T12:00:00Z", "league": "La Liga"
+  },
+  "count": 36,
+  "odds": [
+    {
+      "id": 51713, "market": "1x2", "outcome": "HOME", "outcome_name": "Osasuna",
+      "bookmaker": "Pinnacle", "bookmaker_code": "pinnacle",
+      "decimal_odds": 2.11, "previous_decimal_odds": 2.18,
+      "is_max_quote": false, "implied_probability": 0.4739,
+      "movement": "SHORTENING", "updated_at": "2026-04-12T09:00:00Z"
+    },
+    ...
+  ]
+}
+GET /api/odds/compare/?event=997 — aggregated side-by-side view
+
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/odds/compare/?event=997"
+{
+  "event_id": 997,
+  "home_team": "Osasuna",
+  "away_team": "Real Betis",
+  "event_date": "2026-04-12T12:00:00Z",
+  "league": "La Liga",
+  "bookmakers_count": 12,
+  "total_odds": 36,
+  "markets": {
+    "1x2": {
+      "Osasuna": {
+        "best_odds": 2.20,
+        "best_bookmaker": "Interwetten",
+        "ai_probability": null,
+        "bookmakers": {
+          "Pinnacle": {"decimal": 2.11, "movement": "SHORTENING"},
+          "Bet365":   {"decimal": 2.10, "movement": "SHORTENING"},
+          "Bwin":     {"decimal": 2.20, "movement": "SHORTENING"}
+        }
+      },
+      "Draw": {"best_odds": 3.6, "best_bookmaker": "Unibet", "bookmakers": {"...": "..."}},
+      "Real Betis": {"best_odds": 3.62, "best_bookmaker": "Pinnacle", "bookmakers": {"...": "..."}}
+    }
+  }
+}
+GET /api/odds/best/?market=1x2&league=8&days=3 — best odds per outcome across bookmakers
+
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/odds/best/?market=1x2&league=8&days=3"
+Polymarket Prediction Markets
+Returns Polymarket prediction market prices for upcoming football matches. Prices are implied probabilities (0-1) — convert to decimal odds with 1/price. Synced every 30 minutes.
+
+Param	Type	Required	Description
+event	integer	No	Filter by event ID
+league	integer	No	Filter by league ID
+Response fields (each item)
+In addition to event_id, home_team, away_team, event_date, league, league_id, and updated_at, each result contains:
+
+odds — nested object with markets: 1x2, over_under, btts, halftime, handicap
+exact_scores — object mapping scorelines to implied probability (e.g. {"1-0": 0.095})
+goalscorers — object mapping player names to anytime goalscorer probability
+Markets included
+1X2, Over/Under (1.5, 2.5, 3.5, 4.5), BTTS, Halftime result, Handicaps (-1.5, -2.5), Exact scores, Goalscorers.
+
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/odds/polymarket/?league=1"
+{
+  "count": 23,
+  "results": [
+    {
+      "event_id": 325,
+      "home_team": "Brentford",
+      "away_team": "Fulham",
+      "event_date": "2026-04-18T11:30:00Z",
+      "league": "Premier League",
+      "league_id": 1,
+      "odds": {
+        "1x2": {"home": 0.465, "draw": 0.255, "away": 0.275},
+        "over_under": {"over_25": 0.555, "under_25": 0.445, ...},
+        "btts": {"yes": 0.58, "no": 0.42},
+        "halftime": {"home": 0.355, "draw": 0.405, "away": 0.225},
+        "handicap": {"home_-1.5": 0.23, "away_-1.5": 0.115, ...}
+      },
+      "exact_scores": {"1-0": 0.095, "0-0": 0.08, ...},
+      "goalscorers": {"B. Mbeumo": 0.42, "R. Jimenez": 0.31, ...},
+      "updated_at": "2026-04-14T18:00:13Z"
+    }
+  ]
+}
+GET
+/api/managers/
+Returns head coaches and managers with their tactical fingerprint and aggregated match statistics. Each manager's style is derived from their actual match data (possession, pass completion, long-ball %, cross rate, pressing proxy, opponent pass disruption, defensive line height, set-piece goal share, shot efficiency, score variance) — no hand-mapped labels — and scored against 30 tactical styles across 6 categories. Requires ≥5 matches with complete stats to surface tactical_styles, pressing_intensity, and defensive_line. Use ?team_id= to fetch the manager for a specific team.
+
+Query parameters
+Param	Type	Required	Description
+team_id	integer	No	Filter by internal team ID (returns manager with active tenure at that team)
+league	integer	No	Filter by league ID — returns managers who have coached in that league
+profile	string	No	Filter by tactical profile: attacking, defensive, balanced
+team_style	string	No	Filter by style: possession, counter, pressing, defensive, direct, mixed
+min_matches	integer	No	Minimum number of matches managed (default: 0)
+search	string	No	Search by manager name or short name (case-insensitive)
+ordering	string	No	Sort by: win_pct, avg_goals_scored, avg_goals_conceded, matches_total, avg_yellow_cards, name. Prefix with - for descending (e.g. -win_pct)
+Response fields — identity
+Field	Type	Description
+id	integer	Internal manager ID
+name	string	Manager full name
+short_name	string | null	Short name (e.g. "P. Guardiola")
+country	string | null	Country of origin
+profile	string | null	Tactical profile: attacking, defensive, or balanced (null if not yet determined)
+current_team	object | null	Current club: {id, name}
+Response fields — tactical profile
+Field	Type	Description
+preferred_formation	string | null	Most frequently used formation (e.g. "4-3-3")
+formations_used	object | null	Formation usage counts (e.g. {"4-3-3": 12, "4-2-3-1": 5})
+team_style	string | null	Legacy category label: possession, counter, pressing, defensive, direct, mixed. Superseded by tactical_styles.
+pressing_intensity	number | null	0–1. Derived from defensive-action rate and opponent pass disruption — high press coaches score near 1.0, deep-sitters near 0.2.
+defensive_line	string | null	low / mid / high. Bucketed from the average Y-coordinate of the back line across matches.
+tactical_styles	array	Top 4 tactical styles with affinity scores, ranked 1–4. Each entry: {rank, code, name, category, emoji, description, score}. Empty array for managers with <5 matches of complete stats.
+All 30 tactical style codes (6 categories)
+Response fields — match statistics
+Field	Type	Description
+matches_total	integer | null	Total matches managed
+wins	integer | null	Total wins
+draws	integer | null	Total draws
+losses	integer | null	Total losses
+win_pct	number | null	Win percentage (0–100)
+avg_goals_scored	number | null	Average goals scored per match
+avg_goals_conceded	number | null	Average goals conceded per match
+avg_goals_scored_1h	number | null	Average goals scored in the first half per match
+avg_goals_conceded_1h	number | null	Average goals conceded in the first half per match
+avg_possession	number | null	Average ball possession percentage
+avg_shots	number | null	Average total shots per match
+avg_shots_on_target	number | null	Average shots on target per match
+avg_xg_for	number | null	Average expected goals (xG) for per match
+avg_xg_against	number | null	Average expected goals (xG) against per match
+avg_corners	number | null	Average corners per match
+avg_yellow_cards	number | null	Average yellow cards per match
+avg_red_cards	number | null	Average red cards per match
+avg_fouls	number | null	Average fouls committed per match
+clean_sheet_pct	number | null	Percentage of matches with a clean sheet (0–100)
+btts_pct	number | null	Percentage of matches where both teams scored (0–100)
+over_25_pct	number | null	Percentage of matches with over 2.5 goals (0–100)
+over_15_pct	number | null	Percentage of matches with over 1.5 goals (0–100)
+fail_to_score_pct	number | null	Percentage of matches where the team failed to score (0–100)
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/managers/?team_id=42"
+{
+  "count": 1,
+  "results": [
+    {
+      "id": 128,
+      "name": "Pep Guardiola",
+      "short_name": "P. Guardiola",
+      "country": "Spain",
+      "current_team": {"id": 42, "name": "Manchester City"},
+      "preferred_formation": "4-3-3",
+      "formations_used": {"4-3-3": 18, "4-2-3-1": 6, "3-2-4-1": 2},
+      "profile": "attacking",
+      "team_style": "possession",
+      "pressing_intensity": 0.51,
+      "defensive_line": "high",
+      "tactical_styles": [
+        {"rank": 1, "code": "positional", "name": "Positional Play", "category": "possession", "emoji": "\u265f", "description": "Zone occupation and overloads", "score": 0.112},
+        {"rank": 2, "code": "ball_dominant", "name": "Ball Dominant", "category": "possession", "emoji": "\u26bd", "description": "Keep the ball to control tempo and energy", "score": 0.109},
+        {"rank": 3, "code": "total_football", "name": "Total Football", "category": "possession", "emoji": "\ud83c\udf00", "description": "Fluid rotations, every player attacks and defends", "score": 0.099},
+        {"rank": 4, "code": "false_9", "name": "False 9 System", "category": "possession", "emoji": "\ud83c\udfa9", "description": "No fixed striker \u2014 central creator drops deep", "score": 0.088}
+      ],
+      "matches_total": 26,
+      "wins": 18,
+      "draws": 4,
+      "losses": 4,
+      "win_pct": 69.23,
+      "avg_goals_scored": 2.31,
+      "avg_goals_conceded": 0.96,
+      "avg_goals_scored_1h": 1.04,
+      "avg_goals_conceded_1h": 0.38,
+      "avg_possession": 62.4,
+      "avg_shots": 16.8,
+      "avg_shots_on_target": 6.2,
+      "avg_xg_for": 2.14,
+      "avg_xg_against": 0.88,
+      "avg_corners": 7.3,
+      "avg_yellow_cards": 1.5,
+      "avg_red_cards": 0.08,
+      "avg_fouls": 9.4,
+      "clean_sheet_pct": 46.15,
+      "btts_pct": 38.46,
+      "over_25_pct": 65.38,
+      "over_15_pct": 88.46,
+      "fail_to_score_pct": 7.69
+    }
+  ]
+}
+Detail: GET /api/managers/{id}/ returns a single manager.
+Ordering: Use ?ordering=-win_pct to rank by win rate, ?ordering=-avg_xg_for for attacking output, etc.
+GET
+/api/venues/
+List all football venues (stadiums and arenas) with capacity, city, country, and the team that plays home there.
+
+Query parameters
+Param	Type	Description
+country	string	Filter by country (substring, case-insensitive)
+city	string	Filter by city (substring, case-insensitive)
+min_capacity	integer	Minimum seating capacity
+GET /api/venues/?country=Spain&min_capacity=50000
+{
+  "count": 14,
+  "results": [
+    {
+      "id": 812,
+      "name": "Santiago Bernabéu",
+      "city": "Madrid",
+      "country": "Spain",
+      "capacity": 81044,
+      "team": {"id": 2829, "name": "Real Madrid"}
+    }
+  ]
+}
+Detail: GET /api/venues/{id}/ returns a single venue.
+Nested: The venue field is also returned inside /api/teams/{id}/ (home stadium) and /api/events/{id}/ (match venue, falls back to the home team's stadium when not set).
+GET
+/api/social/
+Returns social-media items — official club tweets and YouTube match-highlight videos — linked to teams, events, players and managers. Tweets refresh every 30 minutes, highlights every 6 hours. Ordered newest first. Deliberately not part of /api/live/ so the live endpoint stays fast; pull the social feed separately, or read the social field on /api/events/{id}/ and /api/teams/{id}/ (capped at 20 items each).
+
+Query parameters
+Param	Type	Required	Description
+team	integer	No	Filter by team ID
+event	integer	No	Filter by event ID
+player	integer	No	Filter by player ID (heuristic linking from tweet text)
+manager	integer	No	Filter by manager ID
+type	string	No	tweet or video
+since	string	No	ISO date — only items published on/after this date
+Response fields
+Field	Type	Description
+type	string	tweet (official club Twitter account) or video (match highlight)
+source	string	Upstream provider (sofascore_tweets, sofascore_media)
+url	string	Direct link to the tweet or highlight video
+text	string	Tweet body (or video subtitle)
+title	string	Video title (empty for tweets)
+thumbnail	string	Preview image URL
+media_urls	array	Raw media objects from upstream (image/video URLs)
+account_handle / account_name / account_verified	string / bool	Posting account metadata
+published_at	string	When the tweet or video was published (ISO 8601)
+teams / events / players / managers	array	Linked entities (id + name, plus home/away/date for events)
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/social/?team=44&type=tweet"
+
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/social/?event=13466949"
+GET
+/api/tv-channels/
+Catalogue of official TV broadcast channels per country. Only licensed rights-holders are ingested — no pirate streams. Updated daily.
+
+Query parameters
+Param	Type	Required	Description
+country	string	No	ISO-2 country code (e.g. PT, ES, GB). Returns all countries if omitted.
+search	string	No	Case-insensitive partial match on channel name
+Response fields
+Field	Type	Description
+id	integer	Internal channel ID
+channel_id	integer	Upstream channel ID (use with /api/broadcasts/?channel=)
+name	string	Channel name (e.g. "Sport TV1")
+country_code	string	ISO-2 country where this channel is licensed
+link	string	Official channel link / affiliate URL (empty when not provided)
+is_official	boolean	Always true — only licensed rights-holders are ingested
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/tv-channels/?country=PT"
+Related: To see which channels broadcast a specific match, use /api/broadcasts/.
+GET
+/api/broadcasts/
+Event-to-channel broadcast mappings — which licensed TV channel shows which match, in which country, and at what scheduled start time. Refreshed daily from the official rights-holder schedules.
+
+Query parameters
+Param	Type	Required	Description
+event	integer	No	Filter by event ID
+country	string	No	ISO-2 country code (e.g. PT, ES, GB)
+channel	integer	No	Filter by internal channel id (from /api/tv-channels/)
+league	integer	No	Filter by league ID (of the event)
+date_from	string	No	Event date >= YYYY-MM-DD
+date_to	string	No	Event date <= YYYY-MM-DD
+Response fields
+Field	Type	Description
+id	integer	Broadcast mapping ID
+event_id	integer	Event ID
+home_team	string	Home team name
+away_team	string	Away team name
+league	string	League name
+event_date	datetime	Event kickoff time (ISO 8601)
+country_code	string	ISO-2 country where the broadcast applies
+channel_id	integer	Upstream channel ID
+channel_name	string	Channel name (e.g. "Sport TV1")
+channel_link	string	Official channel link / affiliate URL
+scheduled_start_time	datetime	Broadcast start time as published by the rights-holder (may differ from event_date on delayed coverage)
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/broadcasts/?country=PT&date_from=2026-04-25&date_to=2026-04-27"
+Official only: Only licensed rights-holders are included. Pirate streams and unofficial links are never surfaced.
+GET
+/api/referees/
+Returns distinct referees aggregated from match data. Includes event count, yellow cards, and red cards across all their matches. Results sorted by number of matches officiated. Cached 10 minutes.
+
+Query parameters
+Param	Type	Required	Description
+league	integer	No	Filter to matches in this league ID
+name	string	No	Case-insensitive partial match on referee name
+Response fields
+Field	Type	Description
+name	string	Referee full name
+country	string	Referee country (may be empty)
+matches	integer	Number of finished matches officiated in our dataset
+total_yellow_cards	integer	Total yellow cards counted from our match incidents
+total_red_cards	integer	Total red cards counted from our match incidents
+avg_yellow_per_match	float | null	Average yellow cards per match
+avg_red_per_match	float | null	Average red cards per match
+avg_goals_per_match	float | null	Average goals per match
+avg_fouls_per_match	float | null	Average fouls per match (when live stats are available)
+career_games	integer | null	Career total games
+career_yellow_cards	integer | null	Career yellow cards
+career_red_cards	integer | null	Career red cards
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     "https://sports.bzzoiro.com/api/referees/?league=1"
+{
+  "count": 682,
+  "results": [
+    {
+      "name": "Anthony Taylor",
+      "country": "England",
+      "matches": 38,
+      "total_yellow_cards": 156,
+      "total_red_cards": 8,
+      "avg_yellow_per_match": 4.11,
+      "avg_red_per_match": 0.21,
+      "avg_goals_per_match": 2.87,
+      "avg_fouls_per_match": 21.4,
+      "career_games": 320,
+      "career_yellow_cards": 1240,
+      "career_red_cards": 62
+    },
+    ...
+  ]
+}
+GET
+/api/predicted-lineup/<int:event_id>/
+BETA
+Returns AI-predicted starting lineups for upcoming matches — predicted starters, substitutes, and unavailable players for each team. Only available for matches that have not yet been played.
+
+Note: Lineups are generated periodically and may not be available for every match. Returns 404 if not yet generated or event not found.
+URL parameters
+Param	Type	Description
+event_id	integer	Event ID (id from /api/events/)
+Response fields
+Field	Type	Description
+event	object	Match context: id, home_team, away_team, date, league, status
+beta	boolean	Always true — feature is in beta
+lineups.home / lineups.away
+team	string	Team name
+predicted_formation	string | null	Predicted formation (e.g. "4-3-3")
+confidence	float | null	Lineup confidence score (0–1)
+starters	array	Predicted starting XI — each item: {name, position, jersey_number, ai_score}
+substitutes	array	Predicted bench players — same structure as starters
+unavailable	array	Injured or suspended players — each item: {name, reason}
+updated_at	datetime	When the lineup prediction was last updated (ISO 8601)
+Example
+curl -H "Authorization: Token YOUR_API_KEY" \
+     https://sports.bzzoiro.com/api/predicted-lineup/42567/
+{
+  "event": {
+    "id": 42567,
+    "home_team": "Barcelona",
+    "away_team": "Real Madrid",
+    "date": "2026-04-20T19:00:00+00:00",
+    "league": "La Liga",
+    "status": "notstarted"
+  },
+  "beta": true,
+  "lineups": {
+    "home": {
+      "team": "Barcelona",
+      "predicted_formation": "4-3-3",
+      "confidence": 0.74,
+      "starters": [
+        {"name": "I. Pena", "position": "G", "jersey_number": 13, "ai_score": 0.91},
+        {"name": "L. Yamal", "position": "F", "jersey_number": 19, "ai_score": 0.88},
+        ...
+      ],
+      "substitutes": [...],
+      "unavailable": [
+        {"name": "R. Araujo", "reason": "Muscle Injury"}
+      ],
+      "updated_at": "2026-04-19T06:00:00+00:00"
+    },
+    "away": { ... }
+  }
+}
+100% free · Unlimited requests · No credit card required
+
+About
+Bzzoiro Sports Data (BSD) provides a free REST API for football data and ML-powered predictions. 30+ leagues, 3000+ teams, 8900+ players, live scores, odds, and CatBoost predictions.
+
+bzzoiro@proton.me
+
+Quick Links
+Home
+Documentation
+Free API
+Register
+Status
+Data
+Leagues
+Teams
+Players
+API Resources
+Swagger UI
+ReDoc
+OpenAPI Schema
+llms.txt
+AI Plugin Manifest
+Bzzoiro Sports Data — Free Football Data API — sports.bzzoiro.com

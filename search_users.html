@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buscador de Usuarios</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            padding: 30px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 28px;
+        }
+
+        .search-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .search-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 15px;
+            align-items: end;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        input[type="text"] {
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
+        }
+
+        button {
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .results-section {
+            margin-top: 30px;
+        }
+
+        .results-info {
+            color: #666;
+            margin-bottom: 15px;
+            font-size: 14px;
+            padding: 10px 0;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        thead {
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            color: #555;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 15px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #333;
+            font-size: 14px;
+        }
+
+        tbody tr:hover {
+            background: #f8f9fa;
+            transition: background 0.2s;
+        }
+
+        tbody tr {
+            transition: background 0.2s;
+        }
+
+        .avatar-cell {
+            max-width: 50px;
+            max-height: 50px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: #e0e0e0;
+        }
+
+        .status-active {
+            color: #27ae60;
+            font-weight: 600;
+        }
+
+        .status-inactive {
+            color: #e74c3c;
+            font-weight: 600;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-size: 16px;
+        }
+
+        .no-results-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+        }
+
+        .spinner {
+            border: 4px solid #f0f0f0;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .clear-btn {
+            background: #999;
+            padding: 12px 20px;
+            font-size: 14px;
+        }
+
+        .clear-btn:hover {
+            background: #777;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        @media (max-width: 768px) {
+            .search-form {
+                grid-template-columns: 1fr;
+            }
+
+            th, td {
+                padding: 10px;
+                font-size: 12px;
+            }
+
+            h1 {
+                font-size: 22px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Buscador de Usuarios</h1>
+
+        <div class="search-section">
+            <form class="search-form" id="searchForm">
+                <div class="form-group">
+                    <label for="searchEmail">Buscar por Correo: <span style="font-size: 12px; color: #999;">(2+ caracteres)</span></label>
+                    <input type="text" id="searchEmail" placeholder="Ej: juan@ejemplo.com">
+                </div>
+
+                <div class="form-group">
+                    <label for="searchUsername">Buscar por Usuario: <span style="font-size: 12px; color: #999;">(2+ caracteres)</span></label>
+                    <input type="text" id="searchUsername" placeholder="Ej: ALBERT EINSTEIN">
+                </div>
+
+                <div>
+                    <button type="button" class="clear-btn" onclick="clearSearch()">Limpiar</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="results-section" id="resultsSection" style="display:none;">
+            <div class="results-info" id="resultsInfo"></div>
+            <table id="resultsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Usuario</th>
+                        <th>Correo</th>
+                        <th>Nombre Mostrado</th>
+                        <th>Puntos Totales</th>
+                        <th>Creado</th>
+                        <th>Último Login</th>
+                        <th>Activo</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsBody">
+                </tbody>
+            </table>
+        </div>
+
+        <div id="noResults" class="no-results" style="display:none;">
+            <div class="no-results-icon">📭</div>
+            <p>No se encontraron usuarios con esos criterios de búsqueda.</p>
+        </div>
+
+        <div id="loading" class="loading" style="display:none;">
+            <div class="spinner"></div>
+            <p>Buscando usuarios...</p>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('searchForm');
+        const searchEmailInput = document.getElementById('searchEmail');
+        const searchUsernameInput = document.getElementById('searchUsername');
+        const resultsSection = document.getElementById('resultsSection');
+        const noResults = document.getElementById('noResults');
+        const loading = document.getElementById('loading');
+        const resultsBody = document.getElementById('resultsBody');
+        const resultsInfo = document.getElementById('resultsInfo');
+        let searchTimeout;
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            performSearch();
+        });
+
+        // Agregar eventos de entrada para búsqueda automática
+        searchEmailInput.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            const email = searchEmailInput.value.trim();
+            const username = searchUsernameInput.value.trim();
+
+            if ((email.length >= 2 || username.length >= 2) && (email.length > 0 || username.length > 0)) {
+                searchTimeout = setTimeout(performSearch, 300);
+            } else if (email.length === 0 && username.length === 0) {
+                resultsSection.style.display = 'none';
+                noResults.style.display = 'none';
+                loading.style.display = 'none';
+            }
+        });
+
+        searchUsernameInput.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            const email = searchEmailInput.value.trim();
+            const username = searchUsernameInput.value.trim();
+
+            if ((email.length >= 2 || username.length >= 2) && (email.length > 0 || username.length > 0)) {
+                searchTimeout = setTimeout(performSearch, 300);
+            } else if (email.length === 0 && username.length === 0) {
+                resultsSection.style.display = 'none';
+                noResults.style.display = 'none';
+                loading.style.display = 'none';
+            }
+        });
+
+        async function performSearch() {
+            const email = searchEmailInput.value.trim();
+            const username = searchUsernameInput.value.trim();
+
+            if (!email && !username) {
+                return;
+            }
+
+            // Verificar que al menos uno tenga 2 caracteres
+            if (email.length < 2 && username.length < 2) {
+                return;
+            }
+
+            loading.style.display = 'block';
+            resultsSection.style.display = 'none';
+            noResults.style.display = 'none';
+            resultsBody.innerHTML = '';
+
+            try {
+                const response = await fetch('search_users_api.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        username: username
+                    })
+                });
+
+                const data = await response.json();
+                loading.style.display = 'none';
+
+                if (data.success && data.users && data.users.length > 0) {
+                    displayResults(data.users);
+                } else {
+                    noResults.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                loading.style.display = 'none';
+                noResults.style.display = 'block';
+            }
+        }
+
+        function displayResults(users) {
+            resultsBody.innerHTML = '';
+            users.forEach(user => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${user.id}</td>
+                    <td><strong>${user.username || 'N/A'}</strong></td>
+                    <td>${user.email}</td>
+                    <td>${user.display_name}</td>
+                    <td>${user.total_points}</td>
+                    <td>${formatDate(user.created_at)}</td>
+                    <td>${user.last_login ? formatDate(user.last_login) : 'Nunca'}</td>
+                    <td>
+                        <span class="${user.is_active ? 'status-active' : 'status-inactive'}">
+                            ${user.is_active ? '✓ Activo' : '✗ Inactivo'}
+                        </span>
+                    </td>
+                `;
+                resultsBody.appendChild(row);
+            });
+
+            resultsInfo.textContent = `Se encontraron ${users.length} usuario(s)`;
+            resultsSection.style.display = 'block';
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${day}/${month}/${year} ${hours}:${minutes}`;
+        }
+
+        function clearSearch() {
+            searchEmailInput.value = '';
+            searchUsernameInput.value = '';
+            resultsSection.style.display = 'none';
+            noResults.style.display = 'none';
+            loading.style.display = 'none';
+            resultsBody.innerHTML = '';
+            resultsInfo.textContent = '';
+            searchEmailInput.focus();
+        }
+    </script>
+</body>
+</html>
