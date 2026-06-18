@@ -19,6 +19,11 @@ define('DB_CHARSET', 'utf8mb4');
 define('EXT_API_BASE',  'https://sports.bzzoiro.com/api');
 define('EXT_API_TOKEN', '5d5b7145bcf005bd2b0e6a26e43a956c3a130d5f');
 define('CACHE_MATCHES_TTL', 120);
+define('CRON_MATCH_REFRESH_LIMIT', 200);
+
+define('LIVE_STATUSES',     ['inprogress','1st_half','halftime','2nd_half',
+                              'extra_time','penalties','live']);
+define('FINISHED_STATUSES', ['finished','ft','full_time']);
 
 // Bases de datos a procesar
 $databases = ['matchday_db', 'matchday_dbalter'];
@@ -60,27 +65,72 @@ foreach ($databases as $dbName) {
         continue;
     }
 
-    // 1. Obtener matches mundialistas que tengan pronósticos
+    // 1. Obtener partidos que tengan pronósticos.
+    // Prioriza pendientes de ayer/ya jugados para que no queden atrapados por el límite del cron.
     echo "   • Buscando partidos con pronósticos...\n";
-    $stmt = $pdo->prepare("
-        SELECT p.match_api_id
+    $countStmt = $pdo->prepare("
+        SELECT COUNT(DISTINCT p.match_api_id) AS total
         FROM predictions p
         INNER JOIN matches_cache m ON m.api_id = p.match_api_id
-        WHERE m.is_mundial = 1
-        GROUP BY p.match_api_id
+    ");
+    $countStmt->execute();
+    $candidateCount = (int)($countStmt->fetch()['total'] ?? 0);
+
+    $urgentStmt = $pdo->prepare("
+        SELECT p.match_api_id, m.event_date
+        FROM predictions p
+        INNER JOIN matches_cache m ON m.api_id = p.match_api_id
+        WHERE p.result_checked = 0
+          AND m.event_date <= NOW()
+        GROUP BY p.match_api_id, m.event_date
+        ORDER BY
+            CASE
+                WHEN DATE(m.event_date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) THEN 1
+                ELSE 2
+            END,
+            m.event_date DESC
+    ");
+    $urgentStmt->execute();
+    $urgentMatchIds = array_column($urgentStmt->fetchAll(), 'match_api_id');
+
+    $refreshLimit = (int)CRON_MATCH_REFRESH_LIMIT;
+    $stmt = $pdo->prepare("
+        SELECT
+            p.match_api_id,
+            m.status,
+            m.event_date,
+            SUM(CASE WHEN p.result_checked = 0 THEN 1 ELSE 0 END) AS pending_predictions
+        FROM predictions p
+        INNER JOIN matches_cache m ON m.api_id = p.match_api_id
+        GROUP BY p.match_api_id, m.status, m.event_date
         ORDER BY 
             CASE 
-                WHEN m.status IN ('inprogress','1st_half','halftime','2nd_half','extra_time','penalties','live') THEN 1
-                WHEN m.status IN ('finished','ft','full_time') THEN 2
-                WHEN DATE(m.event_date) = CURDATE() THEN 3
-                ELSE 4
+                WHEN SUM(CASE WHEN p.result_checked = 0 THEN 1 ELSE 0 END) > 0
+                     AND DATE(m.event_date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) THEN 1
+                WHEN SUM(CASE WHEN p.result_checked = 0 THEN 1 ELSE 0 END) > 0
+                     AND m.event_date <= NOW() THEN 2
+                WHEN LOWER(m.status) IN ('inprogress','1st_half','halftime','2nd_half','extra_time','penalties','live') THEN 3
+                WHEN LOWER(m.status) IN ('finished','ft','full_time') THEN 4
+                WHEN DATE(m.event_date) = CURDATE() THEN 5
+                ELSE 6
             END,
+            CASE WHEN m.event_date <= NOW() THEN m.event_date END DESC,
             m.event_date ASC
-        LIMIT 20
+        LIMIT $refreshLimit
     ");
     $stmt->execute();
-    $matchIds = array_column($stmt->fetchAll(), 'match_api_id');
-    echo "   • Encontrados: " . count($matchIds) . " partidos\n";
+    $matchIds = array_values(array_unique(array_merge(
+        $urgentMatchIds,
+        array_column($stmt->fetchAll(), 'match_api_id')
+    )));
+    echo "   • Encontrados: " . count($matchIds) . " partidos para actualizar";
+    if ($candidateCount > $refreshLimit) {
+        echo " de $candidateCount candidatos";
+    }
+    if (!empty($urgentMatchIds)) {
+        echo " (" . count($urgentMatchIds) . " pendientes ya jugados incluidos sin límite)";
+    }
+    echo "\n";
 
     // 2. Actualizar cada partido desde la API
     echo "   • Actualizando datos de la API...\n";
@@ -113,6 +163,14 @@ foreach ($databases as $dbName) {
                  current_minute, period, round_number, is_mundial, raw_json)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON DUPLICATE KEY UPDATE
+                league_id       = VALUES(league_id),
+                league_name     = VALUES(league_name),
+                league_country  = VALUES(league_country),
+                season_id       = VALUES(season_id),
+                season_name     = VALUES(season_name),
+                home_team       = VALUES(home_team),
+                away_team       = VALUES(away_team),
+                event_date      = VALUES(event_date),
                 status          = VALUES(status),
                 home_score      = VALUES(home_score),
                 away_score      = VALUES(away_score),
@@ -120,6 +178,8 @@ foreach ($databases as $dbName) {
                 away_score_ht   = VALUES(away_score_ht),
                 current_minute  = VALUES(current_minute),
                 period          = VALUES(period),
+                round_number    = VALUES(round_number),
+                is_mundial      = VALUES(is_mundial),
                 raw_json        = VALUES(raw_json),
                 cached_at       = NOW()
         ")->execute([
@@ -140,11 +200,11 @@ foreach ($databases as $dbName) {
             $match['current_minute']    ?? null,
             $match['period']            ?? null,
             $match['round_number']      ?? null,
-            1,
+            (isset($match['league']['id']) && (int)$match['league']['id'] === 27) ? 1 : 0,
             json_encode($match),
         ]);
         
-        if (in_array($match['status'], ['finished', 'ft', 'full_time'])) {
+        if (in_array(strtolower(trim($match['status'] ?? '')), FINISHED_STATUSES, true)) {
             $finished++;
         }
         $updated++;
@@ -179,6 +239,8 @@ foreach ($databases as $dbName) {
             AND m.away_score IS NOT NULL
             AND (
                 p.result_checked = 0
+                OR p.last_real_home IS NULL
+                OR p.last_real_away IS NULL
                 OR p.last_real_home <> m.home_score
                 OR p.last_real_away <> m.away_score
             )
