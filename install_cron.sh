@@ -15,15 +15,13 @@ fi
 
 PROJECT_PATH="/var/www/html/fiebremundialista"
 CRON_SCRIPT="$PROJECT_PATH/cron_verify_matches.php"
-
-# Generar clave secreta aleatoria
-SECRET_KEY=$(php -r "echo bin2hex(random_bytes(16));")
+SECRET_FILE="$PROJECT_PATH/.cron_secret"
 
 echo "📋 Parámetros:"
 echo "   • Usuario web: $WEB_USER"
 echo "   • Ruta proyecto: $PROJECT_PATH"
 echo "   • Script: $CRON_SCRIPT"
-echo "   • Clave secreta: ${SECRET_KEY:0:16}..."
+echo "   • Archivo secret: $SECRET_FILE"
 echo ""
 
 # Verificar que el script existe
@@ -33,6 +31,14 @@ if [ ! -f "$CRON_SCRIPT" ]; then
 fi
 
 echo "✓ Script encontrado"
+echo ""
+
+# Generar clave secreta aleatoria
+SECRET_KEY=$(php -r "echo bin2hex(random_bytes(16));")
+printf "%s" "$SECRET_KEY" > "$SECRET_FILE"
+chmod 600 "$SECRET_FILE"
+echo "✓ Clave secreta guardada"
+echo "   • Clave secreta: ${SECRET_KEY:0:16}..."
 echo ""
 
 # Crear backup del crontab actual
@@ -80,16 +86,22 @@ echo ""
 echo "2️⃣  Clave secreta (guardar en lugar seguro):"
 echo "    $SECRET_KEY"
 echo ""
-echo "3️⃣  Para cambiar la frecuencia, edita con:"
+echo "3️⃣  Para correr validación COMPLETA una vez en el servidor:"
+echo "    cd $PROJECT_PATH && php cron_verify_matches.php --secret=$SECRET_KEY --mode=full"
+echo ""
+echo "4️⃣  URL para correr validación completa desde navegador:"
+echo "    https://TU-DOMINIO/api.php/cron?secret=$SECRET_KEY&mode=full"
+echo ""
+echo "5️⃣  Para cambiar la frecuencia, edita con:"
 echo "    crontab -e -u $WEB_USER"
 echo ""
-echo "4️⃣  Para verificar que está activo:"
+echo "6️⃣  Para verificar que está activo:"
 echo "    crontab -l -u $WEB_USER | grep cron_verify"
 echo ""
-echo "5️⃣  Para ver logs (si los hay):"
+echo "7️⃣  Para ver logs (si los hay):"
 echo "    tail -f /var/log/syslog | grep CRON"
 echo ""
-echo "6️⃣  Cambios en api.php:"
+echo "8️⃣  Cambios en api.php:"
 echo "    ✓ Bloqueo de edición: 40 minutos antes del partido"
 echo "    ✓ Todos los pronósticos se verifican automáticamente"
 echo ""
