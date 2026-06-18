@@ -24,7 +24,9 @@ define('CRON_RECENT_FINISHED_DAYS', 3);
 
 define('LIVE_STATUSES',     ['inprogress','1st_half','halftime','2nd_half',
                               'extra_time','penalties','live']);
-define('FINISHED_STATUSES', ['finished','ft','full_time']);
+define('FINISHED_STATUSES', ['finished','ft','full_time','completed','complete','ended',
+                             'final','after_extra_time','aet','after_penalties',
+                             'penalties_finished']);
 
 // Bases de datos a procesar
 $databases = ['matchday_db', 'matchday_dbalter'];
@@ -108,7 +110,7 @@ foreach ($databases as $dbName) {
             WHERE m.event_date <= NOW()
               AND (
                   p.result_checked = 0
-                  OR LOWER(m.status) NOT IN ('finished','ft','full_time')
+                  OR LOWER(m.status) NOT IN ('finished','ft','full_time','completed','complete','ended','final','after_extra_time','aet','after_penalties','penalties_finished')
                   OR m.home_score IS NULL
                   OR m.away_score IS NULL
                   OR m.event_date >= DATE_SUB(NOW(), INTERVAL $recentDays DAY)
@@ -142,7 +144,7 @@ foreach ($databases as $dbName) {
                 WHEN SUM(CASE WHEN p.result_checked = 0 THEN 1 ELSE 0 END) > 0
                      AND m.event_date <= NOW() THEN 2
                 WHEN LOWER(m.status) IN ('inprogress','1st_half','halftime','2nd_half','extra_time','penalties','live') THEN 3
-                WHEN LOWER(m.status) IN ('finished','ft','full_time') THEN 4
+                WHEN LOWER(m.status) IN ('finished','ft','full_time','completed','complete','ended','final','after_extra_time','aet','after_penalties','penalties_finished') THEN 4
                 WHEN DATE(m.event_date) = CURDATE() THEN 5
                 ELSE 6
             END,
@@ -267,7 +269,7 @@ foreach ($databases as $dbName) {
         FROM predictions p
         INNER JOIN matches_cache m ON m.api_id = p.match_api_id
         WHERE
-            LOWER(m.status) IN ('finished','ft','full_time')
+            LOWER(m.status) IN ('finished','ft','full_time','completed','complete','ended','final','after_extra_time','aet','after_penalties','penalties_finished')
             AND m.home_score IS NOT NULL
             AND m.away_score IS NOT NULL
             AND (

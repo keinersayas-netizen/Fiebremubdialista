@@ -48,7 +48,9 @@ define('CRON_RECENT_FINISHED_DAYS', 3);
 // Estados que indica partido en curso o ya jugado
 define('LIVE_STATUSES',     ['inprogress','1st_half','halftime','2nd_half',
                               'extra_time','penalties','live']);
-define('FINISHED_STATUSES', ['finished','ft','full_time']);
+define('FINISHED_STATUSES', ['finished','ft','full_time','completed','complete','ended',
+                             'final','after_extra_time','aet','after_penalties',
+                             'penalties_finished']);
 define('STARTED_STATUSES',  array_merge(LIVE_STATUSES, FINISHED_STATUSES));
 
 // ─── CORS / Headers ──────────────────────────────────────────
@@ -744,7 +746,7 @@ function verifyPredictions(PDO $pdo, ?int $userId = null, bool $fullRefresh = fa
         FROM predictions p
         INNER JOIN matches_cache m ON m.api_id = p.match_api_id
         WHERE
-            LOWER(m.status) IN ('finished','ft','full_time')
+            LOWER(m.status) IN ('finished','ft','full_time','completed','complete','ended','final','after_extra_time','aet','after_penalties','penalties_finished')
             AND m.home_score IS NOT NULL
             AND m.away_score IS NOT NULL
             AND (
@@ -847,7 +849,7 @@ function verifyPredictionsLite(PDO $pdo, ?int $userId = null): array
         FROM predictions p
         INNER JOIN matches_cache m ON m.api_id = p.match_api_id
         WHERE
-            LOWER(m.status) IN ('finished','ft','full_time')
+            LOWER(m.status) IN ('finished','ft','full_time','completed','complete','ended','final','after_extra_time','aet','after_penalties','penalties_finished')
             AND m.home_score IS NOT NULL
             AND m.away_score IS NOT NULL
             AND (
